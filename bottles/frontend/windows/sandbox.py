@@ -35,7 +35,8 @@ class SandboxDialog(Adw.Window):
     row_usb = Gtk.Template.Child()
     switch_usb = Gtk.Template.Child()
     group_hidraw = Gtk.Template.Child()
-
+    group_paths_rw = Gtk.Template.Child()
+    group_paths_ro = Gtk.Template.Child()
     # endregion
 
     def __init__(self, window, config, **kwargs):
@@ -62,6 +63,116 @@ class SandboxDialog(Adw.Window):
         self.config = self.manager.update_config(
             config=self.config, key=flag, value=state, scope="Sandbox"
         ).data["config"]
+
+    def __add_path(self, _widget, key: str):
+        dialog = Gtk.FileDialog(title=_("Select a Directory"))
+        dialog.select_folder(self, None, self.__on_folder_selected, key)
+
+    def __on_folder_selected(self, dialog, result, key: str):
+        try:
+            folder = dialog.select_folder_finish(result)
+        except Exception:
+            return
+
+        if folder is None:
+            return
+
+        path = folder.get_path()
+        if not path or path == "/":
+            return
+
+        current = list(getattr(self.config.Sandbox, key, []) or [])
+        if path in current:
+            return
+
+        current.append(path)
+        self.config = self.manager.update_config(
+            config=self.config, key=key, value=current, scope="Sandbox"
+        ).data["config"]
+
+        # Dialog is created fresh each time it is opened, so we can simply
+        # append the new row.
+        self.__add_path_row(path, key)
+
+    def __remove_path(self, button, path: str, key: str):
+        current = list(getattr(self.config.Sandbox, key, []) or [])
+        if path not in current:
+            return
+
+        current.remove(path)
+        self.config = self.manager.update_config(
+            config=self.config, key=key, value=current, scope="Sandbox"
+        ).data["config"]
+
+        # Remove only the row that owns this button
+        row = button.get_ancestor(Adw.ActionRow)
+        if row is not None:
+            group = (
+                self.group_paths_rw
+                if key == "share_paths_rw"
+                else self.group_paths_ro
+            )
+            group.remove(row)
+
+    def __add_path_row(self, path: str, key: str):
+        row = Adw.ActionRow(title=path)
+        btn = Gtk.Button(
+            icon_name="user-trash-symbolic",
+            valign=Gtk.Align.CENTER,
+            tooltip_text=_("Remove"),
+        )
+        btn.add_css_class("flat")
+        btn.connect("clicked", self.__remove_path, path, key)
+        row.add_suffix(btn)
+
+        if key == "share_paths_rw":
+            self.group_paths_rw.add(row)
+        else:
+            self.group_paths_ro.add(row)
+
+    def __populate_paths(self):
+        """
+        Build the initial path lists. Because SandboxDialog is instantiated
+        anew every time the user opens it, the PreferencesGroups start empty
+        so we only need to add rows — never clear them.
+        """
+        # Read-Write "Add" row
+        add_row_rw = Adw.ActionRow(
+            title=_("Add Directory"),
+            subtitle=_("Choose a host folder to share with the bottle"),
+            activatable=True,
+        )
+        btn_rw = Gtk.Button(
+            icon_name="list-add-symbolic",
+            valign=Gtk.Align.CENTER,
+            tooltip_text=_("Add read-write directory"),
+        )
+        btn_rw.add_css_class("flat")
+        btn_rw.connect("clicked", self.__add_path, "share_paths_rw")
+        add_row_rw.add_suffix(btn_rw)
+        self.group_paths_rw.add(add_row_rw)
+
+        for path in self.config.Sandbox.share_paths_rw or []:
+            self.__add_path_row(path, "share_paths_rw")
+
+        # Read-Only "Add" row
+        add_row_ro = Adw.ActionRow(
+            title=_("Add Directory"),
+            subtitle=_("Choose a host folder to share read-only with the bottle"),
+            activatable=True,
+        )
+        btn_ro = Gtk.Button(
+            icon_name="list-add-symbolic",
+            valign=Gtk.Align.CENTER,
+            tooltip_text=_("Add read-only directory"),
+        )
+        btn_ro.add_css_class("flat")
+        btn_ro.connect("clicked", self.__add_path, "share_paths_ro")
+        add_row_ro.add_suffix(btn_ro)
+        self.group_paths_ro.add(add_row_ro)
+
+        for path in self.config.Sandbox.share_paths_ro or []:
+            self.__add_path_row(path, "share_paths_ro")
 
     def __apply_hidraw_device(self, row, identifier):
         selected = {
@@ -181,6 +292,7 @@ class SandboxDialog(Adw.Window):
     def __update(self, config):
         self.switch_net.set_active(config.Sandbox.share_net)
         self.switch_sound.set_active(config.Sandbox.share_sound)
+        self.__populate_paths()
         self.__populate_hidraw_devices()
         self.__update_device_permissions()
         if not SandboxManager.supports_input_devices():

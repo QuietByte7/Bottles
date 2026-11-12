@@ -4,7 +4,9 @@ using Adw 1;
 template $SandboxDialog: Adw.Window {
   modal: true;
   deletable: true;
+  resizable: true;
   default-width: 550;
+  default-height: 600;
   title: _("Sandbox Settings");
 
   ShortcutController {
@@ -20,6 +22,9 @@ template $SandboxDialog: Adw.Window {
     Adw.HeaderBar {}
 
     Adw.PreferencesPage {
+      /* PreferencesPage scrolls automatically when the window
+         height is constrained (default-height above). */
+
       Adw.PreferencesGroup {
         Adw.ActionRow {
           title: _("Share Network");
@@ -58,6 +63,16 @@ template $SandboxDialog: Adw.Window {
             valign: center;
           }
         }
+      }
+
+      Adw.PreferencesGroup group_paths_rw {
+        title: _("Shared Host Directories (Read-Write)");
+        description: _("Host directories exposed read-write inside the dedicated sandbox via flatpak-spawn --sandbox-expose-path.");
+      }
+
+      Adw.PreferencesGroup group_paths_ro {
+        title: _("Shared Host Directories (Read-Only)");
+        description: _("Host directories exposed read-only inside the dedicated sandbox via flatpak-spawn --sandbox-expose-path-ro.");
       }
 
       Adw.PreferencesGroup group_hidraw {

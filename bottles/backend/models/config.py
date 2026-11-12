@@ -97,8 +97,8 @@ class BottleSandboxParams(DictCompatMixIn):
     share_usb: bool = False
     # share_host_ro: bool = True  # TODO: implement, requires the Bottles runtime (next) for a minimal sandbox
     # share_gpu: bool = True  # TODO: implement
-    # share_paths_ro: List[str] = field(default_factory=lambda: [])  # TODO: implement
-    # share_paths_rw: List[str] = field(default_factory=lambda: [])  # TODO: implement
+    share_paths_ro: List[str] = field(default_factory=list)
+    share_paths_rw: List[str] = field(default_factory=list)
 
 
 @dataclass

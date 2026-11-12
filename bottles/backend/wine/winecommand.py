@@ -1315,6 +1315,15 @@ raise SystemExit(status if status >= 0 else 128 - status)
                 ):
                     share_paths_rw.append(argument)
 
+        # User-configured host directories from the Sandbox settings dialog
+        for path in self.config.Sandbox.share_paths_rw or []:
+            if path and path not in share_paths_rw:
+                share_paths_rw.append(path)
+
+        user_share_paths_ro = [
+            path for path in (self.config.Sandbox.share_paths_ro or []) if path
+        ]
+
         hidraw_selected = any(
             normalize_hidraw_id(value)
             for value in self.config.Parameters.hidraw_devices
@@ -1324,7 +1333,7 @@ raise SystemExit(status if status >= 0 else 128 - status)
             chdir=chdir,
             clear_env=True,
             share_paths_rw=share_paths_rw,
-            share_paths_ro=[p for p in share_paths_ro if p],
+            share_paths_ro=[p for p in share_paths_ro if p] + user_share_paths_ro,
             share_net=self.config.Sandbox.share_net,
             share_sound=self.config.Sandbox.share_sound,
             share_input=self.config.Sandbox.share_input or hidraw_selected,
