@@ -1,4 +1,4 @@
-# steam.py
+# sandbox.py
 #
 # Copyright 2025 mirkobrombin <brombin94@gmail.com>
 #
@@ -48,6 +48,7 @@ class SandboxManager:
         clear_env: bool = False,
         share_paths_ro: Optional[list] = None,
         share_paths_rw: Optional[list] = None,
+        share_paths_ro_try: Optional[list] = None,
         share_net: bool = False,
         share_user: bool = False,
         share_host_ro: bool = True,
@@ -63,6 +64,9 @@ class SandboxManager:
         self.clear_env = clear_env
         self.share_paths_ro = list(share_paths_ro or [])
         self.share_paths_rw = list(share_paths_rw or [])
+        # Optional paths: use --sandbox-expose-path-ro-try= when available so a
+        # missing directory never aborts the spawn (MangoHud config dirs, etc.).
+        self.share_paths_ro_try = list(share_paths_ro_try or [])
         self.share_net = share_net
         self.share_user = share_user
         self.share_host_ro = share_host_ro
@@ -137,6 +141,14 @@ class SandboxManager:
                 for p in self.share_paths_ro
             ]
 
+        # Optional RO paths: only bind if the path exists on the host.
+        if self.share_paths_ro_try:
+            _cmd += [
+                f"--ro-bind {shlex.quote(p)} {shlex.quote(p)}"
+                for p in self.share_paths_ro_try
+                if os.path.exists(p)
+            ]
+
         if self.share_paths_rw:
             _cmd += [
                 f"--bind {shlex.quote(p)} {shlex.quote(p)}" for p in self.share_paths_rw
@@ -187,6 +199,13 @@ class SandboxManager:
                 f"--sandbox-expose-path-ro={shlex.quote(p)}"
                 for p in self.share_paths_ro
             ]
+
+        if self.share_paths_ro_try:
+            # Prefer the -try variant so missing optional paths (e.g. MangoHud
+            # config) do not fail the spawn.
+            for p in self.share_paths_ro_try:
+                quoted = shlex.quote(p)
+                _cmd.append(f"--sandbox-expose-path-ro-try={quoted}")
 
         if self.share_paths_rw:
             _cmd += [

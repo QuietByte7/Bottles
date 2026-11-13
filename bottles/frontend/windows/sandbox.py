@@ -21,6 +21,7 @@ from gi.repository import Adw, Gtk
 
 from bottles.backend.managers.sandbox import SandboxManager
 from bottles.backend.utils.hidraw import list_hidraw_devices, normalize_hidraw_id
+from bottles.backend.utils.manager import ManagerUtils
 
 
 @Gtk.Template(resource_path="/com/usebottles/bottles/dialog-sandbox.ui")
@@ -68,6 +69,19 @@ class SandboxDialog(Adw.Window):
         dialog = Gtk.FileDialog(title=_("Select a Directory"))
         dialog.select_folder(self, None, self.__on_folder_selected, key)
 
+    def __resolve_display_path(self, path: str) -> str:
+        """
+        Prefer the real host path over a document-portal path so the UI
+        shows something the user recognises (e.g. ~/.config/MangoHud instead
+        of /run/user/1000/doc/…).
+        """
+        if not path:
+            return path
+        resolved = ManagerUtils.resolve_portal_path(path)
+        if resolved and resolved != path:
+            return resolved
+        return path
+
     def __on_folder_selected(self, dialog, result, key: str):
         try:
             folder = dialog.select_folder_finish(result)
@@ -80,6 +94,10 @@ class SandboxDialog(Adw.Window):
         path = folder.get_path()
         if not path or path == "/":
             return
+
+        # Always store the resolved host path since the FileChooser portal 
+        # returns a document-portal path.
+        path = self.__resolve_display_path(path)
 
         current = list(getattr(self.config.Sandbox, key, []) or [])
         if path in current:
@@ -134,7 +152,7 @@ class SandboxDialog(Adw.Window):
         """
         Build the initial path lists. Because SandboxDialog is instantiated
         anew every time the user opens it, the PreferencesGroups start empty
-        so we only need to add rows — never clear them.
+        and we only need to add rows — never clear them.
         """
         # Read-Write "Add" row
         add_row_rw = Adw.ActionRow(
@@ -152,8 +170,23 @@ class SandboxDialog(Adw.Window):
         add_row_rw.add_suffix(btn_rw)
         self.group_paths_rw.add(add_row_rw)
 
-        for path in self.config.Sandbox.share_paths_rw or []:
-            self.__add_path_row(path, "share_paths_rw")
+        rw_paths = list(self.config.Sandbox.share_paths_rw or [])
+        resolved_rw = []
+        changed_rw = False
+        for path in rw_paths:
+            display = self.__resolve_display_path(path)
+            if display != path:
+                changed_rw = True
+            if display and display not in resolved_rw:
+                resolved_rw.append(display)
+                self.__add_path_row(display, "share_paths_rw")
+        if changed_rw:
+            self.config = self.manager.update_config(
+                config=self.config,
+                key="share_paths_rw",
+                value=resolved_rw,
+                scope="Sandbox",
+            ).data["config"]
 
         # Read-Only "Add" row
         add_row_ro = Adw.ActionRow(
@@ -171,8 +204,23 @@ class SandboxDialog(Adw.Window):
         add_row_ro.add_suffix(btn_ro)
         self.group_paths_ro.add(add_row_ro)
 
-        for path in self.config.Sandbox.share_paths_ro or []:
-            self.__add_path_row(path, "share_paths_ro")
+        ro_paths = list(self.config.Sandbox.share_paths_ro or [])
+        resolved_ro = []
+        changed_ro = False
+        for path in ro_paths:
+            display = self.__resolve_display_path(path)
+            if display != path:
+                changed_ro = True
+            if display and display not in resolved_ro:
+                resolved_ro.append(display)
+                self.__add_path_row(display, "share_paths_ro")
+        if changed_ro:
+            self.config = self.manager.update_config(
+                config=self.config,
+                key="share_paths_ro",
+                value=resolved_ro,
+                scope="Sandbox",
+            ).data["config"]
 
     def __apply_hidraw_device(self, row, identifier):
         selected = {

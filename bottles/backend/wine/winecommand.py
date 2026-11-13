@@ -1315,25 +1315,92 @@ raise SystemExit(status if status >= 0 else 128 - status)
                 ):
                     share_paths_rw.append(argument)
 
-        # User-configured host directories from the Sandbox settings dialog
-        for path in self.config.Sandbox.share_paths_rw or []:
-            if path and path not in share_paths_rw:
-                share_paths_rw.append(path)
+        # User-configured host directories from the Sandbox settings dialog.
+        # Gtk.FileDialog returns document-portal paths (/run/user/.../doc/...),
+        # which do not survive into the nested flatpak-spawn --sandbox. Resolve
+        # them to the real host path when possible (same approach used for cwd).
+        def _resolve_share_path(path: str) -> Optional[str]:
+            if not path:
+                return None
+            resolved = ManagerUtils.resolve_portal_path(path)
+            # Prefer the real path when the portal one is unusable inside the
+            # nested sandbox; fall back to the original only if resolution failed.
+            if (
+                resolved
+                and resolved != path
+                and os.path.exists(resolved)
+            ):
+                return resolved
+            if ManagerUtils.is_portal_document_path(path):
+                # Portal path that we could not resolve – skip it rather than
+                # feeding a path the nested sandbox cannot open.
+                logging.warning(
+                    f"Skipping unresolvable document-portal path in sandbox "
+                    f"share list: {path}",
+                    jn=True,
+                )
+                return None
+            return path
 
-        user_share_paths_ro = [
-            path for path in (self.config.Sandbox.share_paths_ro or []) if path
-        ]
+        for path in self.config.Sandbox.share_paths_rw or []:
+            resolved = _resolve_share_path(path)
+            if resolved and resolved not in share_paths_rw:
+                share_paths_rw.append(resolved)
+
+        user_share_paths_ro = []
+        for path in self.config.Sandbox.share_paths_ro or []:
+            resolved = _resolve_share_path(path)
+            if resolved and resolved not in user_share_paths_ro:
+                user_share_paths_ro.append(resolved)
+
+        # When MangoHud is enabled, always expose the conventional config
+        # locations. Users frequently pick these via the file dialog (which
+        # yields a portal path) or rely on the default XDG location; neither
+        # is guaranteed to be reachable inside the dedicated sandbox otherwise.
+        # Use the -try form so a missing directory never aborts the spawn.
+        share_paths_ro_try: list[str] = []
+
+        # Workaround whilst '~/.var/app/<app-id>/config/MangoHud' passthrough is
+        # unavailable/WIP
+        env = self.env
+
+        if self.config.Parameters.mangohud:
+            xdg_config = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser(
+                "~/.config"
+            )
+            for candidate in (
+                os.path.join(xdg_config, "MangoHud"),
+                os.path.expanduser("~/.config/MangoHud"),
+            ):
+                if (
+                    candidate
+                    and candidate not in share_paths_ro
+                    and candidate not in user_share_paths_ro
+                    and candidate not in share_paths_ro_try
+                ):
+                    share_paths_ro_try.append(candidate)
+
+            # Workaround whilst '~/.var/app/<app-id>/config/MangoHud' is unavailable
+            if "MANGOHUD_CONFIGFILE" not in env:
+                host_conf = os.path.expanduser(
+                    "~/.config/MangoHud/MangoHud.conf"
+                )
+                if os.path.isfile(host_conf):
+                    if self.config.Parameters.mangohud_display_on_game_start:
+                        env["MANGOHUD_CONFIGFILE"] = host_conf
 
         hidraw_selected = any(
             normalize_hidraw_id(value)
             for value in self.config.Parameters.hidraw_devices
         )
         return SandboxManager(
-            envs=self.env,
+            #envs=self.env,
+            envs=env,
             chdir=chdir,
             clear_env=True,
             share_paths_rw=share_paths_rw,
             share_paths_ro=[p for p in share_paths_ro if p] + user_share_paths_ro,
+            share_paths_ro_try=share_paths_ro_try,
             share_net=self.config.Sandbox.share_net,
             share_sound=self.config.Sandbox.share_sound,
             share_input=self.config.Sandbox.share_input or hidraw_selected,
